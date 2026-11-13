@@ -6,7 +6,8 @@ export type ManagedAuthProvider =
   | "xai_oauth"
   | "agy_oauth"
   | "workbuddy_account"
-  | "claude_official";
+  | "claude_official"
+  | "claude_desktop";
 
 export type CodexLoginMethod = "browser" | "device_code";
 /**

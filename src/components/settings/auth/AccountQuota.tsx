@@ -34,6 +34,7 @@ import { copilotQuotaRows } from "@/components/CopilotQuotaFooter";
 import {
   useAgyAccountQuota,
   useClaudeAccountQuota,
+  useClaudeDesktopAccountQuota,
   useKimiAccountQuota,
   useXaiOauthQuotaByAccountId,
 } from "@/lib/query/subscription";
@@ -461,6 +462,35 @@ export function ClaudeAccountQuota({
     isFetching: loading,
     refetch,
   } = useClaudeAccountQuota(accountId, { enabled: true, autoQuery: false });
+  return (
+    <AccountQuotaColumn
+      login={login}
+      state={subscriptionQuotaState(t, quota, loading, i18n.language, display)}
+      queriedAt={quota?.queriedAt ?? null}
+      loading={loading}
+      onRefresh={() => void refetch()}
+    />
+  );
+}
+
+/** Claude Desktop 账号的额度（授权中心的账号行）：和卡片、托盘同一份查询。 */
+export function ClaudeDesktopAccountQuota({
+  accountId,
+  login,
+}: {
+  accountId: string;
+  login: string;
+}) {
+  const { t, i18n } = useTranslation();
+  const display = useQuotaDisplay();
+  const {
+    data: quota,
+    isFetching: loading,
+    refetch,
+  } = useClaudeDesktopAccountQuota(accountId, {
+    enabled: true,
+    autoQuery: false,
+  });
   return (
     <AccountQuotaColumn
       login={login}

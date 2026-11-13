@@ -448,7 +448,7 @@ const KNOWN_TIERS: &[&str] = &[
 /// 瞬时传输失败（网络/超时/读体中断）返回 `Err`（前端 reject → retry + 保留上次
 /// 成功值）；确定性失败（鉴权/非 2xx/响应体非法 JSON）返回 `Ok(success:false)`。
 /// codex/gemini 两个查询函数遵守同一约定。
-async fn query_claude_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
+pub(crate) async fn query_claude_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
     let client = crate::proxy::http_client::get();
 
     let resp = client

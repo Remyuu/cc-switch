@@ -63,6 +63,8 @@ import {
   type ClaudeDesktopDefaultRoute,
 } from "@/lib/api/providers";
 import { resolveManagedAccountId } from "@/lib/authBinding";
+import { ClaudeDesktopAccountSelect } from "@/components/providers/ClaudeDesktopOfficial";
+import { CLAUDE_DESKTOP_AUTH_PROVIDER } from "@/lib/api/claudeDesktopAccounts";
 import type { ManagedAuthProvider } from "@/lib/api";
 import { useCopilotAuth, useCodexOauth, useXaiOauth } from "./hooks";
 import { isOAuthProviderType } from "@/config/constants";
@@ -293,6 +295,12 @@ export function ClaudeDesktopProviderForm({
   const [selectedXaiAccountId, setSelectedXaiAccountId] = useState<
     string | null
   >(() => resolveManagedAccountId(initialData?.meta, "xai_oauth"));
+  // 官方卡绑定的 Claude Desktop 账号；null = 沿用 Desktop 现在的登录
+  const [selectedDesktopAccountId, setSelectedDesktopAccountId] = useState<
+    string | null
+  >(() =>
+    resolveManagedAccountId(initialData?.meta, CLAUDE_DESKTOP_AUTH_PROVIDER),
+  );
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
   );
@@ -731,6 +739,18 @@ export function ClaudeDesktopProviderForm({
       const settingsConfig = clonePlainRecord(initialData?.settingsConfig);
       settingsConfig.env = {};
       const meta: ProviderMeta = { ...(initialData?.meta ?? {}) };
+      // 绑定的 Desktop 账号：启用这张卡时 Desktop 会切到这个号
+      if (selectedDesktopAccountId) {
+        meta.authBinding = {
+          source: "managed_account",
+          authProvider: CLAUDE_DESKTOP_AUTH_PROVIDER,
+          accountId: selectedDesktopAccountId,
+        };
+      } else if (
+        meta.authBinding?.authProvider === CLAUDE_DESKTOP_AUTH_PROVIDER
+      ) {
+        delete meta.authBinding;
+      }
       delete meta.claudeDesktopMode;
       delete meta.claudeDesktopModelRoutes;
       delete meta.apiFormat;
@@ -1049,6 +1069,18 @@ export function ClaudeDesktopProviderForm({
                 "Claude Desktop 官方供应商使用应用内置的 1P 登录，无需配置 API Key 和接口地址。",
             })}
           </div>
+        )}
+
+        {isOfficial && (
+          <ClaudeDesktopAccountSelect
+            value={selectedDesktopAccountId}
+            onChange={setSelectedDesktopAccountId}
+            onManageAccounts={
+              onManageAuthAccounts
+                ? () => onManageAuthAccounts(CLAUDE_DESKTOP_AUTH_PROVIDER)
+                : undefined
+            }
+          />
         )}
 
         {!isOfficial && (

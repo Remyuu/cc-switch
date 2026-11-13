@@ -356,6 +356,13 @@ export const useSwitchProviderMutation = (appId: AppId) => {
         });
       }
       if (appId === "claude-desktop") {
+        // 绑了 Desktop 账号的官方卡：Desktop 换了号，授权中心的「在用」和额度要重读
+        await queryClient.invalidateQueries({
+          queryKey: ["managed-auth-status", "claude_desktop"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["claude-desktop-account-live"],
+        });
         await queryClient.invalidateQueries({ queryKey: proxyKeys.status });
         await queryClient.invalidateQueries({
           queryKey: ["claudeDesktopStatus"],

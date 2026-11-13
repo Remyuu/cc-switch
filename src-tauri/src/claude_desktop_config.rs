@@ -310,12 +310,16 @@ pub fn default_proxy_routes() -> Vec<ClaudeDesktopDefaultRoute> {
     DEFAULT_PROXY_ROUTES.to_vec()
 }
 
+/// 能作为第三方网关直连写进 Desktop 的卡（从 Claude Code 导入时用）。官方卡不算：
+/// 它用的是客户端自己的登录，不是网关 profile。
 pub fn is_compatible_direct_provider(provider: &Provider) -> bool {
-    validate_direct_provider(provider).is_ok()
+    !is_official_provider(provider) && validate_direct_provider(provider).is_ok()
 }
 
+/// 官方卡：内置那张，或从「Claude Desktop Official」预设另加的（每张可以绑一个 Desktop 账号）。
 pub fn is_official_provider(provider: &Provider) -> bool {
     provider.id == CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID
+        || provider.category.as_deref() == Some("official")
 }
 
 /// 这张卡在直连模式下写不进去，要经本地路由：模型映射卡（上游模型名 Desktop 不认）、托管

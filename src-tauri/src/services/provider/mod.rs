@@ -5938,11 +5938,18 @@ impl ProviderService {
                     if !crate::mode::current::is_proxy(&app_type)
                         && !crate::claude_desktop_config::needs_routing(&provider)
                     {
-                        crate::claude_desktop_config::write_direct(
-                            state.db.as_ref(),
-                            crate::mode::state::op::SWITCH,
+                        crate::services::claude_desktop_account::with_desktop_login(
                             Some(&provider),
-                            crate::mode::state::PendingTarget::pointer(Some(provider.id.clone())),
+                            || {
+                                crate::claude_desktop_config::write_direct(
+                                    state.db.as_ref(),
+                                    crate::mode::state::op::SWITCH,
+                                    Some(&provider),
+                                    crate::mode::state::PendingTarget::pointer(Some(
+                                        provider.id.clone(),
+                                    )),
+                                )
+                            },
                         )?;
                     }
                     return Ok(true);
@@ -7379,12 +7386,15 @@ impl ProviderService {
         if crate::claude_desktop_config::needs_routing(provider) {
             return Err(desktop_needs_routing_error());
         }
-        crate::claude_desktop_config::write_direct(
-            state.db.as_ref(),
-            crate::mode::state::op::SWITCH,
-            Some(provider),
-            crate::mode::state::PendingTarget::pointer(Some(provider.id.clone())),
-        )?;
+        // 绑了 Desktop 账号的官方卡：先换 Desktop 的登录，配置在 Desktop 重新打开前写好
+        crate::services::claude_desktop_account::with_desktop_login(Some(provider), || {
+            crate::claude_desktop_config::write_direct(
+                state.db.as_ref(),
+                crate::mode::state::op::SWITCH,
+                Some(provider),
+                crate::mode::state::PendingTarget::pointer(Some(provider.id.clone())),
+            )
+        })?;
         Ok(SwitchResult::default())
     }
 

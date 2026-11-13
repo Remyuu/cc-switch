@@ -39,7 +39,6 @@ import {
 import { useStreamCheck } from "@/hooks/useStreamCheck";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderEmptyState } from "@/components/providers/ProviderEmptyState";
-import { ClaudeDesktopAccounts } from "@/components/providers/ClaudeDesktopAccounts";
 import {
   useCurrentOmoProviderId,
   useCurrentOmoSlimProviderId,
@@ -526,16 +525,11 @@ export function ProviderList({
     );
   }
 
-  // Claude Desktop 官方登录的多账号切换（只在 macOS 上显示）
-  const desktopAccounts =
-    appId === "claude-desktop" ? <ClaudeDesktopAccounts /> : null;
-
   if (sortedProviders.length === 0 && !dshAccountCard) {
     return (
       <div className="space-y-4">
         {piStateErrorNotice}
         {liveConfigErrorNotice}
-        {desktopAccounts}
         <ProviderEmptyState
           appId={appId}
           onCreate={isPiFamilyApp(appId) ? undefined : onCreate}
@@ -676,7 +670,6 @@ export function ProviderList({
     <div className="space-y-4">
       {piStateErrorNotice}
       {liveConfigErrorNotice}
-      {desktopAccounts}
       {searchSlot && createPortal(searchField, searchSlot)}
       {showListHeader && (
         <div

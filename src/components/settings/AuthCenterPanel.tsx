@@ -8,6 +8,7 @@ import { ClaudeOfficialSection } from "@/components/providers/forms/ClaudeOffici
 import { KimiAccountLogin } from "@/components/providers/KimiAccountLogin";
 import { DshAccountLogin } from "@/components/providers/DshAccount";
 import { WorkBuddyAccountSection } from "@/components/settings/auth/WorkBuddyAccountSection";
+import { ClaudeDesktopAccountSection } from "@/components/settings/auth/ClaudeDesktopAccountSection";
 import { isMac } from "@/lib/platform";
 import { Switch } from "@/components/ui/switch";
 import { useAuthOpenBrowser, writeAuthOpenBrowser } from "@/lib/authLoginLink";
@@ -85,6 +86,7 @@ export function AuthCenterPanel({
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const claudeOfficialSectionRef = useRef<HTMLDivElement | null>(null);
+  const claudeDesktopSectionRef = useRef<HTMLDivElement | null>(null);
   const copilotSectionRef = useRef<HTMLDivElement | null>(null);
   const codexOauthSectionRef = useRef<HTMLDivElement | null>(null);
   const xaiOauthSectionRef = useRef<HTMLDivElement | null>(null);
@@ -106,15 +108,17 @@ export function AuthCenterPanel({
           ? dshAccountSectionRef
           : authScrollTarget === "claude_official"
             ? claudeOfficialSectionRef
-            : authScrollTarget === "github_copilot"
-              ? copilotSectionRef
-              : authScrollTarget === "codex_oauth"
-                ? codexOauthSectionRef
-                : authScrollTarget === "agy_oauth"
-                  ? agyOauthSectionRef
-                  : authScrollTarget === "workbuddy_account"
-                    ? workbuddySectionRef
-                    : xaiOauthSectionRef;
+            : authScrollTarget === "claude_desktop"
+              ? claudeDesktopSectionRef
+              : authScrollTarget === "github_copilot"
+                ? copilotSectionRef
+                : authScrollTarget === "codex_oauth"
+                  ? codexOauthSectionRef
+                  : authScrollTarget === "agy_oauth"
+                    ? agyOauthSectionRef
+                    : authScrollTarget === "workbuddy_account"
+                      ? workbuddySectionRef
+                      : xaiOauthSectionRef;
 
     const target = sectionRef.current;
     const container = findScrollContainer(root);
@@ -198,6 +202,11 @@ export function AuthCenterPanel({
       <div ref={claudeOfficialSectionRef}>
         <ClaudeOfficialSection helpSide="bottom" />
       </div>
+      {isMac() && (
+        <div ref={claudeDesktopSectionRef}>
+          <ClaudeDesktopAccountSection helpSide="bottom" />
+        </div>
+      )}
       <div ref={copilotSectionRef}>
         <CopilotAuthSection />
       </div>

@@ -26,6 +26,11 @@ import XaiOauthQuotaFooter from "@/components/XaiOauthQuotaFooter";
 import AgyAccountQuotaFooter from "@/components/AgyAccountQuotaFooter";
 import { ClaudeBoundAccountLine } from "@/components/providers/forms/ClaudeOfficialSection";
 import ClaudeAccountQuotaFooter from "@/components/ClaudeAccountQuotaFooter";
+import {
+  ClaudeDesktopAccountQuotaFooter,
+  ClaudeDesktopBoundAccountLine,
+  boundClaudeDesktopAccountId,
+} from "@/components/providers/ClaudeDesktopOfficial";
 import { claudePlanLabel } from "@/lib/claudePlan";
 import {
   subscriptionKeys,
@@ -307,10 +312,17 @@ export function ProviderCard({
       ? resolveManagedAccountId(provider.meta, "claude_official")?.trim() ||
         null
       : null;
-  // 绑了账号的官方卡（Codex / Claude）默认查额度，和 Kimi、agy 的账号卡一样
+  // Claude Desktop 官方卡绑了 Desktop 账号：副标题写账号，额度按这个号查（只在 macOS 上）
+  const claudeDesktopBoundAccountId =
+    appId === "claude-desktop" && isOfficial
+      ? boundClaudeDesktopAccountId(provider)
+      : null;
+  // 绑了账号的官方卡（Codex / Claude / Claude Desktop）默认查额度，和 Kimi、agy 的账号卡一样
   const usageEnabled =
     provider.meta?.usage_script?.enabled ??
-    (isBoundCodexOfficial || Boolean(claudeBoundAccountId));
+    (isBoundCodexOfficial ||
+      Boolean(claudeBoundAccountId) ||
+      Boolean(claudeDesktopBoundAccountId));
   const supportsOfficialSubscription =
     isOfficial &&
     ["claude", "codex", "gemini", "grokbuild", "agy"].includes(appId);
@@ -601,6 +613,13 @@ export function ProviderCard({
               note={manualNote}
               showPlan={usageEnabled}
             />
+          ) : claudeDesktopBoundAccountId ? (
+            <ClaudeDesktopBoundAccountLine
+              accountId={claudeDesktopBoundAccountId}
+              providerName={provider.name}
+              note={manualNote}
+              showPlan={usageEnabled}
+            />
           ) : agyModel ? (
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption text-fg-2">
               <span className="min-w-0 truncate" title={agyModel}>
@@ -717,6 +736,17 @@ export function ProviderCard({
                 usageEnabled ? (
                   <ClaudeAccountQuotaFooter
                     accountId={claudeBoundAccountId}
+                    inline={true}
+                    isCurrent={isCurrent}
+                    autoQueryInterval={
+                      provider.meta?.usage_script?.autoQueryInterval ?? 5
+                    }
+                  />
+                ) : null
+              ) : claudeDesktopBoundAccountId ? (
+                usageEnabled ? (
+                  <ClaudeDesktopAccountQuotaFooter
+                    accountId={claudeDesktopBoundAccountId}
                     inline={true}
                     isCurrent={isCurrent}
                     autoQueryInterval={

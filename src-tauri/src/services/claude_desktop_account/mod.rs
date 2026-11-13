@@ -19,6 +19,7 @@
 
 pub mod app;
 pub mod merge;
+pub mod token;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -224,18 +225,28 @@ fn session_count(paths: &Paths, account_uuid: &str) -> usize {
 
 // ───────────────────────────── 状态 ─────────────────────────────
 
+/// 一个保存过的 Desktop 账号。`id` 是账号 UUID：卡片绑定存的就是它，换台电脑也认得出。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DesktopProfileView {
+pub struct DesktopAccount {
+    pub id: String,
+    /// 档案目录名（默认是邮箱）
     pub label: String,
     pub email: Option<String>,
-    pub account_uuid: String,
     pub org_uuid: Option<String>,
+    /// 秒
     pub saved_at: Option<i64>,
     pub session_count: usize,
     pub is_active: bool,
     /// 有凭据也有浏览器状态，能切过去
     pub usable: bool,
+}
+
+impl DesktopAccount {
+    /// 界面上显示的名字：有邮箱用邮箱，否则用档案名。
+    pub fn display_name(&self) -> String {
+        self.email.clone().unwrap_or_else(|| self.label.clone())
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
@@ -258,6 +269,8 @@ pub enum CapturePhase {
 #[serde(rename_all = "camelCase")]
 pub struct CaptureStatus {
     pub phase: CapturePhase,
+    /// 收录成的账号（完成后才有）
+    pub account_id: Option<String>,
     pub label: Option<String>,
     pub message: Option<String>,
     pub started_at: Option<i64>,
@@ -275,20 +288,19 @@ impl CaptureStatus {
     }
 }
 
+/// Desktop 现在的样子，授权中心轮询它。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DesktopAccountsStatus {
+pub struct DesktopLiveState {
     /// 只有 macOS 支持
     pub supported: bool,
     /// 本机装过并运行过 Claude Desktop
     pub installed: bool,
     pub running: bool,
-    pub active_account_uuid: Option<String>,
-    pub active_label: Option<String>,
-    /// Desktop 已登录，但这个账号还没保存成档案
+    /// Desktop 登着的账号 UUID
+    pub active_account_id: Option<String>,
+    /// Desktop 已登录，但这个账号还没收录
     pub active_unmanaged: bool,
-    pub profiles_dir: String,
-    pub profiles: Vec<DesktopProfileView>,
     pub capture: CaptureStatus,
     /// 正在切换 / 同步 / 添加
     pub busy: bool,
@@ -309,7 +321,7 @@ pub struct WorkspaceReport {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchReport {
     pub label: String,
@@ -317,6 +329,14 @@ pub struct SwitchReport {
     pub workspace: WorkspaceReport,
     pub archive: Option<String>,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportOutcome {
+    pub account: DesktopAccount,
+    /// false：这个账号之前就收录过
+    pub created: bool,
 }
 
 // ───────────────────────────── 管理器 ─────────────────────────────
@@ -327,10 +347,12 @@ pub struct ClaudeDesktopAccountManager {
     busy: Arc<AtomicBool>,
     capture: Arc<Mutex<CaptureStatus>>,
     cancel: Arc<AtomicBool>,
+    /// 账号 UUID → 从 Anthropic 查到的邮箱、套餐（只在内存里，查一次用到退出）
+    info: Mutex<BTreeMap<String, token::AccountInfo>>,
 }
 
 /// 同一时间只做一件事；离开作用域自动放开。
-struct BusyGuard(Arc<AtomicBool>);
+pub(crate) struct BusyGuard(Arc<AtomicBool>);
 
 impl Drop for BusyGuard {
     fn drop(&mut self) {
@@ -338,11 +360,7 @@ impl Drop for BusyGuard {
     }
 }
 
-impl Default for ClaudeDesktopAccountManager {
-    fn default() -> Self {
-        Self::new(Paths::resolve(), Arc::new(app::DesktopApp))
-    }
-}
+static GLOBAL: std::sync::OnceLock<Arc<ClaudeDesktopAccountManager>> = std::sync::OnceLock::new();
 
 impl ClaudeDesktopAccountManager {
     pub fn new(paths: Paths, app: Arc<dyn AppControl>) -> Self {
@@ -352,7 +370,15 @@ impl ClaudeDesktopAccountManager {
             busy: Arc::new(AtomicBool::new(false)),
             capture: Arc::new(Mutex::new(CaptureStatus::default())),
             cancel: Arc::new(AtomicBool::new(false)),
+            info: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// 全进程共用一个：命令、切卡、托盘都经它，切换和续期才能互斥。
+    pub fn global() -> Arc<Self> {
+        GLOBAL
+            .get_or_init(|| Arc::new(Self::new(Paths::resolve(), Arc::new(app::DesktopApp))))
+            .clone()
     }
 
     fn ensure_supported(&self) -> Result<(), AppError> {
@@ -383,56 +409,112 @@ impl ClaudeDesktopAccountManager {
         set_capture(&self.capture, update);
     }
 
-    pub fn status(&self) -> DesktopAccountsStatus {
-        let paths = &self.paths;
+    fn view(&self, profile: &ProfileMeta, active: Option<&str>) -> DesktopAccount {
+        let cached_email = self.info.lock().ok().and_then(|info| {
+            info.get(&profile.account_uuid)
+                .and_then(|i| i.email.clone())
+        });
+        DesktopAccount {
+            id: profile.account_uuid.clone(),
+            label: profile.label.clone(),
+            email: profile.email.clone().or(cached_email),
+            org_uuid: profile.org_uuid.clone(),
+            saved_at: profile.saved_at,
+            session_count: session_count(&self.paths, &profile.account_uuid),
+            is_active: active == Some(profile.account_uuid.as_str()),
+            usable: profile.has_credentials && profile.has_desktop_state,
+        }
+    }
+
+    /// 收录过的账号；同一个账号存了多份档案时只列一份。
+    pub fn accounts(&self) -> Vec<DesktopAccount> {
+        let active = active_account(&self.paths);
+        let mut seen = BTreeSet::new();
+        load_profiles(&self.paths.profiles_dir)
+            .iter()
+            .filter(|profile| seen.insert(profile.account_uuid.clone()))
+            .map(|profile| self.view(profile, active.as_deref()))
+            .collect()
+    }
+
+    pub fn account(&self, account_id: &str) -> Option<DesktopAccount> {
+        self.accounts().into_iter().find(|a| a.id == account_id)
+    }
+
+    /// Desktop 现在登着的账号 UUID。
+    pub fn active_account_id(&self) -> Option<String> {
+        active_account(&self.paths)
+    }
+
+    pub fn live_state(&self) -> DesktopLiveState {
         let supported = cfg!(target_os = "macos");
-        let installed = paths.installed();
-        let profiles = load_profiles(&paths.profiles_dir);
-        let active = active_account(paths);
-        let active_label = active
+        let installed = self.paths.installed();
+        let active = active_account(&self.paths);
+        let profiles = load_profiles(&self.paths.profiles_dir);
+        let managed = active
             .as_deref()
-            .and_then(|uuid| label_for_uuid(&profiles, uuid))
-            .map(str::to_string);
-        let running = supported && installed && self.app.is_running().unwrap_or(false);
-        DesktopAccountsStatus {
+            .is_some_and(|uuid| label_for_uuid(&profiles, uuid).is_some());
+        DesktopLiveState {
             supported,
             installed,
-            running,
-            active_unmanaged: active.is_some() && active_label.is_none(),
-            active_account_uuid: active.clone(),
-            active_label,
-            profiles_dir: paths.profiles_dir.display().to_string(),
-            profiles: profiles
-                .iter()
-                .map(|p| DesktopProfileView {
-                    label: p.label.clone(),
-                    email: p.email.clone(),
-                    account_uuid: p.account_uuid.clone(),
-                    org_uuid: p.org_uuid.clone(),
-                    saved_at: p.saved_at,
-                    session_count: session_count(paths, &p.account_uuid),
-                    is_active: active.as_deref() == Some(p.account_uuid.as_str()),
-                    usable: p.has_credentials && p.has_desktop_state,
-                })
-                .collect(),
+            running: supported && installed && self.app.is_running().unwrap_or(false),
+            active_unmanaged: active.is_some() && !managed,
+            active_account_id: active,
             capture: self.capture.lock().map(|c| c.clone()).unwrap_or_default(),
             busy: self.busy.load(Ordering::SeqCst),
         }
     }
 
-    /// 切到档案 `label`：退出 Desktop、存回当前账号、合并工作区、装上目标账号、重新打开。
-    pub fn switch(&self, label: &str) -> Result<SwitchReport, AppError> {
-        self.ensure_supported()?;
-        let _guard = self.acquire()?;
-        switch_profile(&self.paths, self.app.as_ref(), label)
+    fn label_of(&self, account_id: &str) -> Result<String, AppError> {
+        load_profiles(&self.paths.profiles_dir)
+            .into_iter()
+            .find(|p| p.account_uuid == account_id)
+            .map(|p| p.label)
+            .ok_or_else(|| err("这个 Claude Desktop 账号不在这台电脑上，请先在授权中心收录"))
     }
 
-    /// 把 Desktop 当前登录的账号存成档案 `label`（不用退出登录）。
-    pub fn save_current(&self, label: &str, email: Option<String>) -> Result<String, AppError> {
+    /// 切到账号 `account_id`：退出 Desktop、存回当前账号、合并工作区、装上目标账号，
+    /// 在重新打开前执行 `before_relaunch`（切卡时写 Desktop 的配置），失败就整体回滚。
+    pub fn switch_to(
+        &self,
+        account_id: &str,
+        before_relaunch: Option<&mut dyn FnMut() -> Result<(), AppError>>,
+    ) -> Result<SwitchReport, AppError> {
         self.ensure_supported()?;
-        validate_label(label)?;
         let _guard = self.acquire()?;
-        save_current_profile(&self.paths, self.app.as_ref(), label, email)
+        let label = self.label_of(account_id)?;
+        switch_profile(&self.paths, self.app.as_ref(), &label, before_relaunch)
+    }
+
+    /// 收录 Desktop 当前登录的账号（名字用 Anthropic 账号资料里的邮箱）。已收录的直接返回。
+    /// Desktop 会短暂重启，以便安全地复制浏览器状态。
+    pub async fn import_current(self: &Arc<Self>) -> Result<ImportOutcome, AppError> {
+        self.ensure_supported()?;
+        let account =
+            active_account(&self.paths).ok_or_else(|| err("Claude Desktop 当前没有登录"))?;
+        if let Some(existing) = self.account(&account) {
+            return Ok(ImportOutcome {
+                account: existing,
+                created: false,
+            });
+        }
+        let info = self.lookup_info(&account, true).await;
+        let manager = self.clone();
+        let account_id = account.clone();
+        tokio::task::spawn_blocking(move || {
+            let _guard = manager.acquire()?;
+            let label = unique_label(&manager.paths, info.as_ref(), &account_id);
+            let email = info.and_then(|i| i.email);
+            save_current_profile(&manager.paths, manager.app.as_ref(), &label, email)?;
+            Ok(ImportOutcome {
+                account: manager
+                    .account(&account_id)
+                    .ok_or_else(|| err("账号收录后没有读到"))?,
+                created: true,
+            })
+        })
+        .await
+        .map_err(|e| err(e.to_string()))?
     }
 
     /// 只同步工作区：把所有账号的会话 / 定时任务 / 预设并进当前登录的账号。
@@ -460,62 +542,65 @@ impl ClaudeDesktopAccountManager {
         result
     }
 
-    /// 删除一个档案（不能删当前登录的那个：那是唯一一份实时登录）。
-    pub fn remove(&self, label: &str) -> Result<(), AppError> {
-        validate_label(label)?;
+    /// 删除这个账号的档案（不能删当前登录的那个：那是唯一一份实时登录）。
+    pub fn remove(&self, account_id: &str) -> Result<(), AppError> {
         let _guard = self.acquire()?;
-        let profiles = load_profiles(&self.paths.profiles_dir);
-        let profile = profiles
-            .iter()
-            .find(|p| p.label == label)
-            .ok_or_else(|| err(format!("没有名为 {label:?} 的 Claude Desktop 账号")))?;
-        if active_account(&self.paths).as_deref() == Some(profile.account_uuid.as_str()) {
+        if active_account(&self.paths).as_deref() == Some(account_id) {
             return Err(err(
                 "不能删除 Claude Desktop 当前登录的账号，请先切换到其他账号",
             ));
         }
-        remove_if_present(&self.paths.profile_dir(label))
+        let doomed: Vec<String> = load_profiles(&self.paths.profiles_dir)
+            .into_iter()
+            .filter(|p| p.account_uuid == account_id)
+            .map(|p| p.label)
+            .collect();
+        if doomed.is_empty() {
+            return Err(err("没有这个 Claude Desktop 账号"));
+        }
+        for label in doomed {
+            remove_if_present(&self.paths.profile_dir(&label))?;
+        }
+        Ok(())
     }
 
-    /// 开始添加新账号：Desktop 退出登录后重新打开，等用户登录新账号，再存成档案 `label`。
-    /// 在后台线程里跑，进度看 [`Self::status`] 的 `capture`。
-    pub fn start_capture(&self, label: &str, email: Option<String>) -> Result<(), AppError> {
+    /// 开始添加新账号：Desktop 退出登录后重新打开，等用户登录新账号，再收录（名字用邮箱）。
+    /// 在后台线程里跑，进度看 [`Self::live_state`] 的 `capture`。
+    pub fn start_capture(self: &Arc<Self>) -> Result<(), AppError> {
         self.ensure_supported()?;
-        validate_label(label)?;
-        if load_profiles(&self.paths.profiles_dir)
-            .iter()
-            .any(|p| p.label == label)
-            || self.paths.profile_dir(label).exists()
-        {
-            return Err(err(format!("已经有名为 {label:?} 的账号，请换一个名字")));
+        if self.live_state().active_unmanaged {
+            return Err(err(
+                "Claude Desktop 当前登录的账号还没收录，请先收录它，否则登录另一个账号后它会丢失",
+            ));
         }
         let guard = self.acquire()?;
         self.cancel.store(false, Ordering::SeqCst);
         self.set_capture(|c| {
             *c = CaptureStatus {
                 phase: CapturePhase::Preparing,
-                label: Some(label.to_string()),
-                message: None,
                 started_at: Some(chrono::Utc::now().timestamp_millis()),
+                ..CaptureStatus::default()
             }
         });
-
-        let paths = self.paths.clone();
-        let app = self.app.clone();
-        let capture = self.capture.clone();
-        let cancel = self.cancel.clone();
-        let label = label.to_string();
+        let manager = self.clone();
         std::thread::spawn(move || {
             let _guard = guard;
-            let outcome = capture_profile(&paths, app.as_ref(), &label, email, &capture, &cancel);
-            set_capture(&capture, |c| match outcome {
-                Ok(CaptureOutcome::Captured(note)) => {
+            let outcome = capture_profile(&manager, &manager.capture, &manager.cancel);
+            set_capture(&manager.capture, |c| match outcome {
+                Ok(CaptureOutcome::Captured {
+                    account_id,
+                    label,
+                    note,
+                }) => {
                     c.phase = CapturePhase::Done;
+                    c.account_id = Some(account_id);
+                    c.label = Some(label);
                     c.message = note;
                 }
-                Ok(CaptureOutcome::Refreshed(existing)) => {
+                Ok(CaptureOutcome::Refreshed { account_id, label }) => {
                     c.phase = CapturePhase::Refreshed;
-                    c.message = Some(existing);
+                    c.account_id = Some(account_id);
+                    c.label = Some(label);
                 }
                 Ok(CaptureOutcome::Cancelled) => c.phase = CapturePhase::Cancelled,
                 Ok(CaptureOutcome::TimedOut) => c.phase = CapturePhase::TimedOut,
@@ -540,13 +625,155 @@ impl ClaudeDesktopAccountManager {
         }
     }
 
-    /// 前端看过结果后清掉，面板回到空闲。
+    /// 前端看过结果后清掉，回到空闲。
     pub fn dismiss_capture(&self) {
         self.set_capture(|c| {
             if !c.in_progress() {
                 *c = CaptureStatus::default();
             }
         });
+    }
+
+    // ───────────── 令牌、账号资料、额度 ─────────────
+
+    /// 读这个账号能查用量的令牌：当前登录的从 config.json 只读，其他的从档案读，
+    /// 快过期时在切换锁里续期并写回档案（`allow_refresh`）。
+    async fn usable_token(
+        self: &Arc<Self>,
+        account_id: &str,
+        allow_refresh: bool,
+    ) -> Result<token::DesktopToken, String> {
+        let manager = self.clone();
+        let id = account_id.to_string();
+        let (key, source, current) = tokio::task::spawn_blocking(move || {
+            let key = token::safe_storage_key().map_err(|e| e.to_string())?;
+            let source = manager.token_source(&id)?;
+            let current = token::read_token(&key, &source).map_err(|e| e.to_string())?;
+            Ok::<_, String>((key, source, current))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let now = chrono::Utc::now().timestamp_millis();
+        if !current.needs_refresh(now) {
+            return Ok(current);
+        }
+        if matches!(source, token::TokenSource::Live(_)) {
+            // 当前登录的号由 Desktop 自己续期，这里只读
+            return Ok(current);
+        }
+        if !allow_refresh {
+            return Ok(current);
+        }
+        // 续期会轮换 refresh token：拿切换锁，期间不会有切换去读这份档案
+        let _guard = self.acquire().map_err(|e| e.to_string())?;
+        // 拿到锁时它可能刚被切成当前账号：那就交给 Desktop
+        if self.active_account_id().as_deref() == Some(account_id) {
+            return Ok(current);
+        }
+        let fresh = {
+            let source = source.clone();
+            tokio::task::spawn_blocking(move || token::read_token(&key, &source))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?
+        };
+        if !fresh.needs_refresh(now) {
+            return Ok(fresh);
+        }
+        let renewed = token::refresh(&fresh, now).await?;
+        let to_write = renewed.clone();
+        tokio::task::spawn_blocking(move || token::write_back(&key, &source, &to_write))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        Ok(renewed)
+    }
+
+    fn token_source(&self, account_id: &str) -> Result<token::TokenSource, String> {
+        if active_account(&self.paths).as_deref() == Some(account_id) {
+            return Ok(token::TokenSource::Live(self.paths.config_json()));
+        }
+        let label = self.label_of(account_id).map_err(|e| e.to_string())?;
+        Ok(token::TokenSource::Profile(self.paths.profile_dir(&label)))
+    }
+
+    /// 查账号的邮箱、套餐（缓存在内存里）。`force` 时重新查。
+    async fn lookup_info(
+        self: &Arc<Self>,
+        account_id: &str,
+        allow_refresh: bool,
+    ) -> Option<token::AccountInfo> {
+        if let Some(info) = self
+            .info
+            .lock()
+            .ok()
+            .and_then(|m| m.get(account_id).cloned())
+        {
+            return Some(info);
+        }
+        let token = self.usable_token(account_id, allow_refresh).await.ok()?;
+        let info = token::fetch_account_info(&token.access_token).await.ok()?;
+        if let Ok(mut map) = self.info.lock() {
+            map.insert(account_id.to_string(), info.clone());
+        }
+        Some(info)
+    }
+
+    /// 这个账号的用量（和 Claude Code 绑号卡同一个接口）和套餐。
+    pub async fn quota(
+        self: &Arc<Self>,
+        account_id: &str,
+    ) -> Result<crate::services::subscription::ClaudeAccountQuota, String> {
+        use crate::services::subscription::{
+            ClaudeAccountQuota, CredentialStatus, SubscriptionQuota,
+        };
+        let token = match self.usable_token(account_id, true).await {
+            Ok(token) => token,
+            Err(message) => {
+                return Ok(ClaudeAccountQuota {
+                    quota: SubscriptionQuota::error("claude", CredentialStatus::NotFound, message),
+                    plan: None,
+                })
+            }
+        };
+        if token
+            .expires_at
+            .is_some_and(|expires| expires <= chrono::Utc::now().timestamp_millis())
+        {
+            return Ok(ClaudeAccountQuota {
+                quota: SubscriptionQuota::error(
+                    "claude",
+                    CredentialStatus::Expired,
+                    "Claude Desktop 的登录已过期，打开 Claude Desktop 后会自动续期".to_string(),
+                ),
+                plan: None,
+            });
+        }
+        let quota = crate::services::subscription::query_claude_quota(&token.access_token).await?;
+        let info = match self
+            .info
+            .lock()
+            .ok()
+            .and_then(|m| m.get(account_id).cloned())
+        {
+            Some(info) => Some(info),
+            None => {
+                let fetched = token::fetch_account_info(&token.access_token).await.ok();
+                if let (Some(info), Ok(mut map)) = (&fetched, self.info.lock()) {
+                    map.insert(account_id.to_string(), info.clone());
+                }
+                fetched
+            }
+        };
+        Ok(ClaudeAccountQuota {
+            quota,
+            plan: info
+                .filter(|info| info.subscription_type.is_some())
+                .map(|info| crate::services::claude_account::AccountPlan {
+                    subscription_type: info.subscription_type,
+                    rate_limit_tier: info.rate_limit_tier,
+                }),
+        })
     }
 }
 
@@ -556,12 +783,85 @@ fn set_capture(capture: &Mutex<CaptureStatus>, update: impl FnOnce(&mut CaptureS
     }
 }
 
+// ───────────────────────────── 官方卡 ─────────────────────────────
+
+/// 授权中心里 Claude Desktop 账号的认证供应商标识（卡片绑定存的 `authProvider`）。
+pub const AUTH_PROVIDER: &str = "claude_desktop";
+
+/// Claude Desktop 官方卡绑定的账号 UUID；没绑（沿用 Desktop 现在的登录）或不是官方卡时为 `None`。
+pub fn bound_account(provider: &crate::provider::Provider) -> Option<String> {
+    if !crate::claude_desktop_config::is_official_provider(provider) {
+        return None;
+    }
+    provider
+        .meta
+        .as_ref()?
+        .managed_account_id_for(AUTH_PROVIDER)
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+}
+
+/// 切到（或重新应用）Claude Desktop 卡片 `target` 时的登录切换，对应 Claude Code 的
+/// `claude_official::with_login_switch`：卡绑了本机的 Desktop 账号、且 Desktop 现在不是这个号时，
+/// 退出 Desktop、换上这个号，在 Desktop 重新打开之前执行 `write`（写 Desktop 的配置、移动卡片指针）；
+/// `write` 失败就把登录整体回滚。账号不在这台电脑上（别的设备同步来的卡）时只写配置、记日志。
+pub fn with_desktop_login<R>(
+    target: Option<&crate::provider::Provider>,
+    write: impl FnOnce() -> Result<R, AppError>,
+) -> Result<R, AppError> {
+    let Some(account) = target.and_then(bound_account) else {
+        return write();
+    };
+    let manager = ClaudeDesktopAccountManager::global();
+    if !cfg!(target_os = "macos") || !manager.paths.installed() {
+        return write();
+    }
+    if manager.label_of(&account).is_err() {
+        log::warn!("Claude Desktop 官方卡绑定的账号 {account} 不在这台电脑上，只切换配置");
+        return write();
+    }
+    if manager.active_account_id().as_deref() == Some(account.as_str()) {
+        return write();
+    }
+    let mut write = Some(write);
+    let mut output = None;
+    let mut hook = || -> Result<(), AppError> {
+        if let Some(write) = write.take() {
+            output = Some(write()?);
+        }
+        Ok(())
+    };
+    manager.switch_to(&account, Some(&mut hook))?;
+    output.ok_or_else(|| err("切换 Claude Desktop 账号后没有写入配置"))
+}
+
+/// 新账号的档案名：邮箱（没查到就用 `claude-<UUID 前 8 位>`），重名时加序号。
+fn unique_label(paths: &Paths, info: Option<&token::AccountInfo>, account_uuid: &str) -> String {
+    let base = info
+        .and_then(|i| i.email.clone())
+        .filter(|email| validate_label(email).is_ok())
+        .unwrap_or_else(|| {
+            format!(
+                "claude-{}",
+                account_uuid.chars().take(8).collect::<String>()
+            )
+        });
+    let mut label = base.clone();
+    let mut n = 2;
+    while paths.profile_dir(&label).exists() {
+        label = format!("{base}-{n}");
+        n += 1;
+    }
+    label
+}
+
 // ───────────────────────────── 切换 ─────────────────────────────
 
 fn switch_profile(
     paths: &Paths,
     app: &dyn AppControl,
     label: &str,
+    mut before_relaunch: Option<&mut dyn FnMut() -> Result<(), AppError>>,
 ) -> Result<SwitchReport, AppError> {
     let profiles = load_profiles(&paths.profiles_dir);
     let target = profiles
@@ -585,7 +885,15 @@ fn switch_profile(
 
     let active = active_account(paths);
     if active.as_deref() == Some(target.account_uuid.as_str()) {
-        return Err(err(format!("Claude Desktop 已经登录在 {label:?}")));
+        // 已经是这个号：不用重启 Desktop，只做切卡要做的事
+        if let Some(hook) = before_relaunch.as_mut() {
+            hook()?;
+        }
+        return Ok(SwitchReport {
+            label: label.to_string(),
+            previous_label: Some(label.to_string()),
+            ..SwitchReport::default()
+        });
     }
     if let Some(uuid) = &active {
         if label_for_uuid(&profiles, uuid).is_none() {
@@ -650,6 +958,9 @@ fn switch_profile(
             }
         }
         restore_device_registry(paths, label, &mut notes);
+        if let Some(hook) = before_relaunch.as_mut() {
+            hook()?;
+        }
         Ok(())
     })();
 
@@ -840,21 +1151,27 @@ fn save_synced(path: &Path, synced: &merge::Synced) -> Result<(), AppError> {
 const LOGIN_STATE_FILES: [&str; 4] = [CONFIG_JSON, "Cookies", "Cookies-journal", BRIDGE_FILE];
 
 enum CaptureOutcome {
-    Captured(Option<String>),
-    /// 登录的是已保存过的账号：刷新了它的档案
-    Refreshed(String),
+    Captured {
+        account_id: String,
+        label: String,
+        note: Option<String>,
+    },
+    /// 登录的是已收录过的账号：刷新了它的档案
+    Refreshed {
+        account_id: String,
+        label: String,
+    },
     Cancelled,
     TimedOut,
 }
 
 fn capture_profile(
-    paths: &Paths,
-    app: &dyn AppControl,
-    label: &str,
-    email: Option<String>,
+    manager: &Arc<ClaudeDesktopAccountManager>,
     capture: &Mutex<CaptureStatus>,
     cancel: &AtomicBool,
 ) -> Result<CaptureOutcome, AppError> {
+    let paths = &manager.paths;
+    let app = manager.app.as_ref();
     let profiles = load_profiles(&paths.profiles_dir);
     let config = read_config(paths).unwrap_or_default();
     let mut known_orgs: Vec<String> = profiles.iter().filter_map(|p| p.org_uuid.clone()).collect();
@@ -938,17 +1255,28 @@ fn capture_profile(
         return Ok(CaptureOutcome::Cancelled);
     }
 
+    // 新账号用邮箱命名：趁 Desktop 还开着，用它刚写下的令牌查一次账号资料（只读）
+    let (label, email) = match &existing {
+        Some(label) => (label.clone(), None),
+        None => {
+            let info = tauri::async_runtime::block_on(manager.lookup_info(&account_uuid, false));
+            (
+                unique_label(paths, info.as_ref(), &account_uuid),
+                info.and_then(|i| i.email),
+            )
+        }
+    };
+
     set_capture(capture, |c| c.phase = CapturePhase::Saving);
     app.quit()?;
-    let target_label = existing.clone().unwrap_or_else(|| label.to_string());
     let result = (|| -> Result<Option<String>, AppError> {
-        snapshot_profile(paths, &target_label, &mut notes)?;
+        snapshot_profile(paths, &label, &mut notes)?;
         if existing.is_some() {
             return Ok(None);
         }
         write_meta(
             paths,
-            label,
+            &label,
             email.as_deref(),
             &account_uuid,
             org.as_deref(),
@@ -966,7 +1294,7 @@ fn capture_profile(
         Ok(note) => note,
         Err(error) => {
             if existing.is_none() {
-                let _ = remove_if_present(&paths.profile_dir(label));
+                let _ = remove_if_present(&paths.profile_dir(&label));
             }
             return Err(restore_after(error));
         }
@@ -975,8 +1303,15 @@ fn capture_profile(
         log::warn!("账号已保存，但 Claude Desktop 没能重新打开: {error}");
     }
     Ok(match existing {
-        Some(existing) => CaptureOutcome::Refreshed(existing),
-        None => CaptureOutcome::Captured(note),
+        Some(label) => CaptureOutcome::Refreshed {
+            account_id: account_uuid,
+            label,
+        },
+        None => CaptureOutcome::Captured {
+            account_id: account_uuid,
+            label,
+            note,
+        },
     })
 }
 

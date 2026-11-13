@@ -316,6 +316,34 @@ export function useClaudeAccountQuota(
  * 查额度时后端顺手把凭据里的套餐记进了账号；和账号列表里的不一样（升级 / 降级过）时重新拉
  * 列表，卡片副标题和授权中心显示的套餐就跟着变。
  */
+/** Claude Desktop 账号的额度：卡片底部、授权中心、托盘共用（键和后端缓存一一对应）。 */
+export function useClaudeDesktopAccountQuota(
+  accountId: string,
+  options: UseCodexOauthQuotaOptions = {},
+) {
+  const {
+    enabled = true,
+    autoQuery = false,
+    autoQueryIntervalMinutes = 5,
+  } = options;
+  const refetchInterval =
+    autoQuery && autoQueryIntervalMinutes > 0
+      ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
+      : false;
+  const query = useQuery({
+    queryKey: ["claude_desktop", "quota", accountId],
+    queryFn: () => subscriptionApi.getClaudeDesktopAccountQuota(accountId),
+    enabled,
+    refetchInterval,
+    refetchIntervalInBackground: Boolean(refetchInterval),
+    refetchOnWindowFocus: Boolean(refetchInterval),
+    staleTime: REFETCH_INTERVAL,
+    retry: 1,
+  });
+
+  return useQuotaKeepLastGood(query, `desktop:${accountId}`);
+}
+
 function refreshAccountsOnPlanChange(
   queryClient: QueryClient,
   accountId: string,

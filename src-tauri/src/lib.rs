@@ -1387,10 +1387,6 @@ pub fn run() {
                 app.manage(commands::WorkBuddyAccountState(Arc::new(manager)));
             }
 
-            // Claude Desktop 官方登录的多账号切换（macOS；档案与 claude-acc 共用 ~/.claude-acc）
-            app.manage(commands::ClaudeDesktopAccountState(Arc::new(
-                crate::services::claude_desktop_account::ClaudeDesktopAccountManager::default(),
-            )));
             // Claude Code 官方订阅账号（授权中心加号；每个账号一个 CLAUDE_CONFIG_DIR）
             {
                 use crate::services::claude_account::ClaudeAccountManager;
@@ -1989,14 +1985,13 @@ pub fn run() {
             commands::get_claude_account_quota,
             commands::get_claude_default_plan,
             commands::get_claude_login_switch,
-            commands::claude_desktop_accounts_status,
-            commands::claude_desktop_account_switch,
-            commands::claude_desktop_account_save_current,
-            commands::claude_desktop_account_remove,
-            commands::claude_desktop_workspace_sync,
+            commands::claude_desktop_account_live_state,
+            commands::claude_desktop_account_import_current,
             commands::claude_desktop_account_capture_start,
             commands::claude_desktop_account_capture_cancel,
             commands::claude_desktop_account_capture_dismiss,
+            commands::claude_desktop_workspace_sync,
+            commands::get_claude_desktop_account_quota,
             commands::kimi_oauth_status,
             commands::dsh_account_status,
             commands::dsh_account_sign_out,

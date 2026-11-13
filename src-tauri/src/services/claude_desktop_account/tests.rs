@@ -77,15 +77,18 @@ fn read(path: &Path) -> String {
 }
 
 #[test]
-fn status_reports_profiles_and_active_account() {
+fn lists_accounts_by_uuid_with_active_flag() {
     let (_root, paths) = fixture();
     let (manager, _) = manager(&paths);
-    let status = manager.status();
-    assert_eq!(status.active_label.as_deref(), Some("a"));
-    assert!(!status.active_unmanaged);
-    assert_eq!(status.profiles.len(), 2);
-    assert!(status.profiles[0].is_active && status.profiles[0].usable);
-    assert_eq!(status.profiles[1].session_count, 1);
+    let state = manager.live_state();
+    assert_eq!(state.active_account_id.as_deref(), Some(A));
+    assert!(!state.active_unmanaged);
+    let accounts = manager.accounts();
+    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts[0].id, A);
+    assert!(accounts[0].is_active && accounts[0].usable);
+    assert_eq!(accounts[1].session_count, 1);
+    assert_eq!(accounts[1].display_name(), "b");
 }
 
 #[test]
@@ -93,7 +96,7 @@ fn switch_snapshots_outgoing_merges_workspace_and_installs_target() {
     let (_root, paths) = fixture();
     let (manager, recorder) = manager(&paths);
 
-    let report = manager.switch("b").unwrap();
+    let report = manager.switch_to(B, None).unwrap();
     assert_eq!(report.previous_label.as_deref(), Some("a"));
     assert_eq!(recorder.calls(), vec!["quit", "archive", "relaunch"]);
 
@@ -135,25 +138,49 @@ fn switch_refuses_when_live_login_is_unsaved() {
     let (_root, paths) = fixture();
     remove_if_present(&paths.profile_dir("a")).unwrap();
     let (manager, recorder) = manager(&paths);
-    let error = manager.switch("b").unwrap_err().to_string();
+    let error = manager.switch_to(B, None).unwrap_err().to_string();
     assert!(error.contains("保存当前登录"), "{error}");
     assert!(recorder.calls().is_empty());
 }
 
 #[test]
-fn switch_refuses_already_active_and_unknown() {
+fn switch_to_active_only_runs_hook_and_unknown_fails() {
     let (_root, paths) = fixture();
     let (manager, recorder) = manager(&paths);
-    assert!(manager.switch("a").is_err());
-    assert!(manager.switch("nope").is_err());
+    let mut ran = 0;
+    let mut hook = || -> Result<(), AppError> {
+        ran += 1;
+        Ok(())
+    };
+    manager.switch_to(A, Some(&mut hook)).unwrap();
+    assert_eq!(ran, 1);
+    assert!(manager.switch_to("nope", None).is_err());
     assert!(recorder.calls().is_empty());
+}
+
+#[test]
+fn switch_hook_runs_before_relaunch_and_failure_rolls_back() {
+    let (_root, paths) = fixture();
+    let (manager, recorder) = manager(&paths);
+    let config_seen = std::cell::RefCell::new(None);
+    let mut hook = || -> Result<(), AppError> {
+        // 钩子跑的时候新账号已经装好、Desktop 还没重新打开
+        *config_seen.borrow_mut() = Some(read(&paths.config_json()));
+        Err(AppError::Message("write failed".into()))
+    };
+    assert!(manager.switch_to(B, Some(&mut hook)).is_err());
+    assert!(config_seen.borrow().as_deref().unwrap().contains(B));
+    assert_eq!(
+        recorder.calls(),
+        vec!["quit", "archive", "restore", "relaunch"]
+    );
 }
 
 #[test]
 fn deleted_session_is_not_brought_back_on_switch_back() {
     let (_root, paths) = fixture();
     let (manager, _) = manager(&paths);
-    manager.switch("b").unwrap();
+    manager.switch_to(B, None).unwrap();
     // 在 B 里删掉 s1，再切回 A，再切回 B：s1 不应回到 B
     std::fs::remove_file(
         paths
@@ -163,8 +190,8 @@ fn deleted_session_is_not_brought_back_on_switch_back() {
             .join("local_s1.json"),
     )
     .unwrap();
-    manager.switch("a").unwrap();
-    manager.switch("b").unwrap();
+    manager.switch_to(A, None).unwrap();
+    manager.switch_to(B, None).unwrap();
     assert!(!paths
         .sessions_root()
         .join(B)
@@ -185,20 +212,25 @@ fn save_current_adopts_unmanaged_login() {
     let (_root, paths) = fixture();
     remove_if_present(&paths.profile_dir("a")).unwrap();
     let (manager, recorder) = manager(&paths);
-    assert!(manager.status().active_unmanaged);
+    assert!(manager.live_state().active_unmanaged);
 
-    manager
-        .save_current("main", Some("me@example.com".into()))
-        .unwrap();
+    save_current_profile(
+        &paths,
+        recorder.as_ref(),
+        "main",
+        Some("me@example.com".into()),
+    )
+    .unwrap();
     assert_eq!(recorder.calls(), vec!["quit", "relaunch"]);
-    let status = manager.status();
-    assert_eq!(status.active_label.as_deref(), Some("main"));
-    let main = status.profiles.iter().find(|p| p.label == "main").unwrap();
+    assert!(!manager.live_state().active_unmanaged);
+    let main = manager.account(A).unwrap();
+    assert_eq!(main.label, "main");
+    assert!(main.is_active);
     assert_eq!(main.org_uuid.as_deref(), Some(ORG));
-    assert_eq!(main.email.as_deref(), Some("me@example.com"));
+    assert_eq!(main.display_name(), "me@example.com");
     assert!(main.usable);
     // 再存一次同一个账号会被拒绝
-    assert!(manager.save_current("again", None).is_err());
+    assert!(save_current_profile(&paths, recorder.as_ref(), "again", None).is_err());
 }
 
 #[test]
@@ -222,8 +254,8 @@ fn sync_workspace_merges_into_active_without_switching() {
 fn remove_refuses_active_profile() {
     let (_root, paths) = fixture();
     let (manager, _) = manager(&paths);
-    assert!(manager.remove("a").is_err());
-    manager.remove("b").unwrap();
+    assert!(manager.remove(A).is_err());
+    manager.remove(B).unwrap();
     assert!(!paths.profile_dir("b").exists());
 }
 
@@ -235,4 +267,27 @@ fn labels_are_validated() {
     for good in ["work", "个人", "me@example.com", "team-1_x"] {
         assert!(validate_label(good).is_ok(), "{good:?}");
     }
+}
+
+#[test]
+fn unique_label_prefers_email_and_avoids_collisions() {
+    let (_root, paths) = fixture();
+    let info = token::AccountInfo {
+        email: Some("b".into()),
+        ..token::AccountInfo::default()
+    };
+    // 「b」已经有了
+    assert_eq!(unique_label(&paths, Some(&info), B), "b-2");
+    assert_eq!(
+        unique_label(&paths, None, "12345678-abcd"),
+        "claude-12345678"
+    );
+    let bad = token::AccountInfo {
+        email: Some(".weird/name".into()),
+        ..token::AccountInfo::default()
+    };
+    assert_eq!(
+        unique_label(&paths, Some(&bad), "abcdefgh-1"),
+        "claude-abcdefgh"
+    );
 }

@@ -23,6 +23,7 @@ const AUTH_PROVIDER_XAI_OAUTH: &str = "xai_oauth";
 const AUTH_PROVIDER_AGY_OAUTH: &str = "agy_oauth";
 const AUTH_PROVIDER_WORKBUDDY_ACCOUNT: &str = "workbuddy_account";
 const AUTH_PROVIDER_CLAUDE_OFFICIAL: &str = "claude_official";
+const AUTH_PROVIDER_CLAUDE_DESKTOP: &str = "claude_desktop";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ManagedAuthAccount {
@@ -81,6 +82,7 @@ fn ensure_auth_provider(auth_provider: &str) -> Result<&'static str, String> {
         AUTH_PROVIDER_AGY_OAUTH => Ok(AUTH_PROVIDER_AGY_OAUTH),
         AUTH_PROVIDER_WORKBUDDY_ACCOUNT => Ok(AUTH_PROVIDER_WORKBUDDY_ACCOUNT),
         AUTH_PROVIDER_CLAUDE_OFFICIAL => Ok(AUTH_PROVIDER_CLAUDE_OFFICIAL),
+        AUTH_PROVIDER_CLAUDE_DESKTOP => Ok(AUTH_PROVIDER_CLAUDE_DESKTOP),
         _ => Err(format!("Unsupported auth provider: {auth_provider}")),
     }
 }
@@ -187,6 +189,44 @@ fn map_claude_account(account: ClaudeAccount) -> ManagedAuthAccount {
         account_kind: None,
         id: account.id,
     }
+}
+
+/// Claude Desktop 账号：「默认」是 Desktop 现在登着的那个号（授权中心显示「Claude Desktop 在用」）；
+/// 用哪个号由启用的、绑定了它的 Claude Desktop 官方卡决定。
+fn map_claude_desktop_account(
+    account: crate::services::claude_desktop_account::DesktopAccount,
+) -> ManagedAuthAccount {
+    ManagedAuthAccount {
+        is_default: account.is_active,
+        login: account.display_name(),
+        avatar_url: None,
+        authenticated_at: account.saved_at.unwrap_or(0),
+        github_domain: "claude.ai".to_string(),
+        reauth_required: false,
+        requires_reauth: !account.usable,
+        login_expires_at: None,
+        plan: None,
+        rate_limit_tier: None,
+        provider: AUTH_PROVIDER_CLAUDE_DESKTOP.to_string(),
+        account_kind: None,
+        id: account.id,
+    }
+}
+
+async fn claude_desktop_accounts() -> Result<Vec<ManagedAuthAccount>, String> {
+    tokio::task::spawn_blocking(|| {
+        crate::services::claude_desktop_account::ClaudeDesktopAccountManager::global()
+            .accounts()
+            .into_iter()
+            .map(map_claude_desktop_account)
+            .collect()
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+fn claude_desktop_login_unsupported() -> String {
+    "Claude Desktop accounts are added from the desktop app's sign-in".to_string()
 }
 
 fn workbuddy_login_unsupported() -> String {
@@ -304,6 +344,7 @@ pub async fn auth_start_login(
             })
         }
         AUTH_PROVIDER_WORKBUDDY_ACCOUNT => Err(workbuddy_login_unsupported()),
+        AUTH_PROVIDER_CLAUDE_DESKTOP => Err(claude_desktop_login_unsupported()),
         _ => unreachable!(),
     }
 }
@@ -406,6 +447,7 @@ pub async fn auth_poll_for_account(
             }
             Ok(account.map(map_claude_account))
         }
+        AUTH_PROVIDER_CLAUDE_DESKTOP => Err(claude_desktop_login_unsupported()),
         _ => unreachable!(),
     }
 }
@@ -494,6 +536,7 @@ pub async fn auth_list_accounts(
             .into_iter()
             .map(map_claude_account)
             .collect()),
+        AUTH_PROVIDER_CLAUDE_DESKTOP => claude_desktop_accounts().await,
         _ => unreachable!(),
     }
 }
@@ -604,6 +647,20 @@ pub async fn auth_get_status(
                 accounts: accounts.into_iter().map(map_claude_account).collect(),
             })
         }
+        // 「默认账号」是 Claude Desktop 现在登着的那个号
+        AUTH_PROVIDER_CLAUDE_DESKTOP => {
+            let accounts = claude_desktop_accounts().await?;
+            Ok(ManagedAuthStatus {
+                provider: auth_provider.to_string(),
+                authenticated: !accounts.is_empty(),
+                default_account_id: accounts
+                    .iter()
+                    .find(|account| account.is_default)
+                    .map(|account| account.id.clone()),
+                migration_error: None,
+                accounts,
+            })
+        }
         _ => unreachable!(),
     }
 }
@@ -665,6 +722,14 @@ pub async fn auth_remove_account(
             )
             .await
         }
+        // 只删 CC Switch 里的档案，不替 Desktop 登出；当前登着的号不能删
+        AUTH_PROVIDER_CLAUDE_DESKTOP => tokio::task::spawn_blocking(move || {
+            crate::services::claude_desktop_account::ClaudeDesktopAccountManager::global()
+                .remove(&account_id)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?,
         _ => unreachable!(),
     }
 }
@@ -742,7 +807,7 @@ pub async fn auth_set_default_account(
             })
             .await
         }
-        AUTH_PROVIDER_CLAUDE_OFFICIAL => {
+        AUTH_PROVIDER_CLAUDE_OFFICIAL | AUTH_PROVIDER_CLAUDE_DESKTOP => {
             let _ = account_id;
             Err("Claude accounts are used through the official provider card bound to them".into())
         }
@@ -778,6 +843,7 @@ pub async fn auth_logout(
             .map_err(|e| e.to_string()),
         // WorkBuddy 账号只能逐个删除，没有「删除全部」
         AUTH_PROVIDER_WORKBUDDY_ACCOUNT => Err("WorkBuddy 账号请逐个删除".to_string()),
+        AUTH_PROVIDER_CLAUDE_DESKTOP => Err("Claude Desktop 账号请逐个删除".to_string()),
         AUTH_PROVIDER_CLAUDE_OFFICIAL => {
             claude_state
                 .0

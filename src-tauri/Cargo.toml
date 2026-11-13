@@ -85,6 +85,10 @@ indexmap = { version = "2", features = ["serde"] }
 rust_decimal = "1.33"
 uuid = { version = "1.11", features = ["v4"] }
 sha2 = "0.10"
+# Claude Desktop 的令牌用 Electron safeStorage（Chromium OSCrypt）加密：AES-128-CBC + PBKDF2-HMAC-SHA1
+aes = "0.8"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha1 = "0.10"
 hmac = "0.12"
 subtle = "2.6"
 json5 = "0.4"

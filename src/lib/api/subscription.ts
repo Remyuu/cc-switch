@@ -15,6 +15,11 @@ export const subscriptionApi = {
   /** 绑了账号的 Claude 官方卡：按那个账号自己的登录查，带上它的套餐 */
   getClaudeAccountQuota: (accountId: string): Promise<ClaudeAccountQuota> =>
     invoke("get_claude_account_quota", { accountId }),
+  /** 绑了 Claude Desktop 账号的官方卡：按那个 Desktop 账号查（其他账号的登录会自动续期） */
+  getClaudeDesktopAccountQuota: (
+    accountId: string,
+  ): Promise<ClaudeAccountQuota> =>
+    invoke("get_claude_desktop_account_quota", { accountId }),
   /** Claude Code 默认登录的套餐（没绑账号的官方卡显示） */
   getClaudeDefaultPlan: (): Promise<ClaudeAccountPlan | null> =>
     invoke("get_claude_default_plan"),
