@@ -5384,6 +5384,7 @@
     }
   },
   "claudeDesktopAccounts": {
+    "busyHint": "Başka bir Claude Desktop hesap işlemi sürüyor. Birazdan tekrar deneyin.",
     "help": "Claude Desktop'ın resmi oturumu (macOS). Desktop'ın tek bir oturum yuvası vardır ve CC Switch onun yerine oturum açamaz: Desktop'ın oturum açtığı hesabı kaydedebilir ya da Desktop'ın oturumunu kapatıp sonraki açtığınız hesabı otomatik kaydedebilir. Kullanılacak hesabı seçmek için Claude Desktop sağlayıcı sayfasında resmi bir karta bağlayın; o kartı etkinleştirdiğinizde Desktop bu hesapla yeniden başlar ve Code sekmesinin oturumları, arşiv durumu, rutinleri ve çalışma alanı ön ayarları eşitlenir. Hesaplar ~/.claude-acc içinde saklanır ve claude-acc / ai-usagebar ile paylaşılır; her geçişten önce bir geri alma arşivi yazılır.",
     "statusFailed": "Claude Desktop hesapları okunamadı. Tekrar deneyin.",
     "empty": "Henüz Claude Desktop hesabı yok. Desktop'ın oturum açtığı hesabı kaydetmek için \"Hesap ekle\"ye tıklayın.",

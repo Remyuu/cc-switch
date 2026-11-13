@@ -349,6 +349,9 @@ pub struct ClaudeDesktopAccountManager {
     cancel: Arc<AtomicBool>,
     /// 账号 UUID → 从 Anthropic 查到的邮箱、套餐（只在内存里，查一次用到退出）
     info: Mutex<BTreeMap<String, token::AccountInfo>>,
+    /// 续期其他账号的令牌（会轮换 refresh token）和切换（读档案里的令牌装给 Desktop）互斥。
+    /// 不用 `busy`：查额度时的续期要走网络，占着 `busy` 会让添加、同步这些操作被挡住。
+    token_lock: tokio::sync::Mutex<()>,
 }
 
 /// 同一时间只做一件事；离开作用域自动放开。
@@ -371,6 +374,7 @@ impl ClaudeDesktopAccountManager {
             capture: Arc::new(Mutex::new(CaptureStatus::default())),
             cancel: Arc::new(AtomicBool::new(false)),
             info: Mutex::new(BTreeMap::new()),
+            token_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -482,6 +486,8 @@ impl ClaudeDesktopAccountManager {
     ) -> Result<SwitchReport, AppError> {
         self.ensure_supported()?;
         let _guard = self.acquire()?;
+        // 等正在进行的续期写完，再读档案里的令牌
+        let _tokens = self.token_lock.blocking_lock();
         let label = self.label_of(account_id)?;
         switch_profile(&self.paths, self.app.as_ref(), &label, before_relaunch)
     }
@@ -664,8 +670,8 @@ impl ClaudeDesktopAccountManager {
         if !allow_refresh {
             return Ok(current);
         }
-        // 续期会轮换 refresh token：拿切换锁，期间不会有切换去读这份档案
-        let _guard = self.acquire().map_err(|e| e.to_string())?;
+        // 续期会轮换 refresh token：拿令牌锁，期间不会有切换去读这份档案
+        let _tokens = self.token_lock.lock().await;
         // 拿到锁时它可能刚被切成当前账号：那就交给 Desktop
         if self.active_account_id().as_deref() == Some(account_id) {
             return Ok(current);

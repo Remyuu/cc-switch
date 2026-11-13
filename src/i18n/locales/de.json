@@ -5384,6 +5384,7 @@
     "deleteSessionHint": "Löschen Sie diese Sitzung in DeepSeek Harness, damit der Verlauf konsistent bleibt."
   },
   "claudeDesktopAccounts": {
+    "busyHint": "Eine andere Claude Desktop-Kontoaktion läuft gerade. Versuche es gleich noch einmal.",
     "help": "Die offizielle Anmeldung von Claude Desktop (macOS). Desktop hat nur einen Anmeldeplatz, und CC Switch kann sich nicht für Desktop anmelden: Es kann das Konto speichern, mit dem Desktop angemeldet ist, oder Desktop abmelden und das nächste Konto speichern, mit dem du dich anmeldest. Welches Konto genutzt wird, legst du fest, indem du es auf der Claude Desktop-Anbieterseite an eine offizielle Karte bindest. Beim Aktivieren dieser Karte startet Desktop mit diesem Konto neu, und Sitzungen, Archivstatus, Routinen und Arbeitsbereich-Vorlagen des Code-Tabs werden synchronisiert. Konten liegen in ~/.claude-acc, gemeinsam mit claude-acc / ai-usagebar; vor jedem Wechsel wird ein Rücksicherungsarchiv geschrieben.",
     "statusFailed": "Claude Desktop-Konten konnten nicht gelesen werden. Versuche es erneut.",
     "empty": "Noch keine Claude Desktop-Konten. Klicke auf „Konto hinzufügen“, um das Konto zu speichern, mit dem Desktop angemeldet ist.",

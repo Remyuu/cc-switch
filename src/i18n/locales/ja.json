@@ -5384,6 +5384,7 @@
     "deleteSessionHint": "履歴の整合性を保つため、DeepSeek Harness でこのセッションを削除してください。"
   },
   "claudeDesktopAccounts": {
+    "busyHint": "別の Claude Desktop アカウント操作を実行中です。しばらくしてからもう一度お試しください。",
     "help": "Claude Desktop の公式サインイン（macOS）。Desktop のサインイン枠は 1 つだけで、CC Switch が代わりにサインインすることはできません。Desktop が現在サインインしているアカウントを保存するか、Desktop をサインアウトさせて次にサインインしたアカウントを自動で保存します。使うアカウントは、Claude Desktop のプロバイダーページで公式カードに紐付けます。そのカードを有効にすると Desktop がそのアカウントで再起動し、Code タブのセッション・アーカイブ状態・ルーティン・ワークスペースのプリセットも同期されます。アカウントは ~/.claude-acc に保存され claude-acc / ai-usagebar と共有されます。切り替えのたびにロールバック用アーカイブを書き出します。",
     "statusFailed": "Claude Desktop のアカウントを読み込めませんでした。もう一度お試しください。",
     "empty": "Claude Desktop のアカウントはまだありません。「アカウントを追加」で Desktop が現在サインインしているアカウントを保存します。",

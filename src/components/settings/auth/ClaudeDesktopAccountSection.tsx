@@ -68,7 +68,7 @@ export function ClaudeDesktopAccountSection({
   const [confirmSync, setConfirmSync] = React.useState(false);
   const [confirmCapture, setConfirmCapture] = React.useState(false);
 
-  const { data: live } = useQuery({
+  const liveQuery = useQuery({
     queryKey: CLAUDE_DESKTOP_LIVE_KEY,
     queryFn: claudeDesktopAccountsApi.liveState,
     // 添加账号时轮询进度
@@ -79,6 +79,7 @@ export function ClaudeDesktopAccountSection({
         ? 1500
         : 5000,
   });
+  const live = liveQuery.data;
 
   const refresh = async () => {
     await refetchStatus();
@@ -252,7 +253,17 @@ export function ClaudeDesktopAccountSection({
 
   // 添加：Desktop 当前的号还没收录时先收录它；已收录时登录另一个账号
   const onAdd = () => {
-    if (working) return;
+    // 读不到 Desktop 的状态（后端没更新、出错）时说清楚，别让按钮看起来没反应
+    if (liveQuery.isError) {
+      toast.error(t("claudeDesktopAccounts.statusFailed"), {
+        description: message(liveQuery.error),
+      });
+      return;
+    }
+    if (working) {
+      toast.info(t("claudeDesktopAccounts.busyHint"));
+      return;
+    }
     // Desktop 登着还没收录的号：先收录它；Desktop 没登录、或当前号已收录：去登录另一个账号
     if (live?.activeUnmanaged) {
       importMutation.mutate();

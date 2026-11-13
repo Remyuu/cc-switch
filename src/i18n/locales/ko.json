@@ -5384,6 +5384,7 @@
     }
   },
   "claudeDesktopAccounts": {
+    "busyHint": "다른 Claude Desktop 계정 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",
     "help": "Claude Desktop의 공식 로그인(macOS). Desktop에는 로그인 슬롯이 하나뿐이라 CC Switch가 대신 로그인할 수 없습니다. Desktop에 현재 로그인된 계정을 저장하거나, Desktop을 로그아웃시킨 뒤 다음에 로그인한 계정을 자동으로 저장합니다. 사용할 계정은 Claude Desktop 공급자 페이지에서 공식 카드에 연결하세요. 그 카드를 사용하면 Desktop이 해당 계정으로 다시 시작되고 Code 탭의 세션·보관 상태·루틴·작업 공간 프리셋도 동기화됩니다. 계정은 ~/.claude-acc에 저장되어 claude-acc / ai-usagebar와 공유되며, 전환할 때마다 롤백 아카이브를 먼저 기록합니다.",
     "statusFailed": "Claude Desktop 계정을 읽지 못했습니다. 다시 시도하세요.",
     "empty": "아직 Claude Desktop 계정이 없습니다. 「계정 추가」를 눌러 Desktop에 로그인된 계정을 저장하세요.",

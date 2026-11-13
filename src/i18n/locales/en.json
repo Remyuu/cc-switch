@@ -5384,6 +5384,7 @@
     "deleteSessionHint": "Delete this session in DeepSeek Harness to keep its history consistent."
   },
   "claudeDesktopAccounts": {
+    "busyHint": "Another Claude Desktop account action is in progress. Try again in a moment.",
     "help": "Claude Desktop's official sign-in (macOS). Desktop has a single login slot and CC Switch cannot sign in for it: it can save the account Desktop is signed in to, or sign Desktop out and save the next account you sign in to. To choose an account, bind it to an official card on the Claude Desktop provider page; enabling that card restarts Desktop as that account and syncs the Code tab's sessions, archive state, routines and workspace presets. Accounts are stored in ~/.claude-acc, shared with claude-acc / ai-usagebar, and every switch writes a rollback archive first.",
     "statusFailed": "Could not read Claude Desktop accounts. Try again.",
     "empty": "No Claude Desktop accounts yet. Click Add account to save the account Desktop is signed in to.",

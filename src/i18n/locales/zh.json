@@ -5384,6 +5384,7 @@
     "deleteSessionHint": "请在 DeepSeek Harness 中删除此会话，以保持原生历史记录一致。"
   },
   "claudeDesktopAccounts": {
+    "busyHint": "另一个 Claude Desktop 账号操作正在进行，请稍后再试。",
     "help": "Claude Desktop 的官方登录（macOS）。Desktop 只有一个登录槽位，CC Switch 不能替它登录，只能收录它当前登着的账号，或让它退出登录、你登录另一个账号后自动收录。要用哪个号：在 Claude Desktop 供应商页给官方卡绑定账号，启用这张卡时 Desktop 会重启到那个号，Code 页的会话、归档状态、定时任务和工作区预设会一并同步过去。账号保存在 ~/.claude-acc，与 claude-acc / ai-usagebar 共用，每次切换前都会写一份回滚归档。",
     "statusFailed": "无法读取 Claude Desktop 账号，请重试。",
     "empty": "还没有 Claude Desktop 账号。点「添加账号」收录 Desktop 当前登录的账号。",

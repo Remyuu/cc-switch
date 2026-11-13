@@ -5384,6 +5384,7 @@
     "deleteSessionHint": "請在 DeepSeek Harness 中刪除此工作階段，以保持原生歷史記錄一致。"
   },
   "claudeDesktopAccounts": {
+    "busyHint": "另一個 Claude Desktop 帳號操作正在進行，請稍後再試。",
     "help": "Claude Desktop 的官方登入（macOS）。Desktop 只有一個登入槽位，CC Switch 無法替它登入，只能收錄它目前登入的帳號，或讓它登出、你登入另一個帳號後自動收錄。要用哪個帳號：在 Claude Desktop 供應商頁替官方卡綁定帳號，啟用這張卡時 Desktop 會重新啟動到那個帳號，Code 頁的工作階段、封存狀態、排程任務和工作區預設會一併同步過去。帳號儲存在 ~/.claude-acc，與 claude-acc / ai-usagebar 共用，每次切換前都會寫一份回復封存檔。",
     "statusFailed": "無法讀取 Claude Desktop 帳號，請重試。",
     "empty": "還沒有 Claude Desktop 帳號。點「新增帳號」收錄 Desktop 目前登入的帳號。",
