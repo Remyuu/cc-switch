@@ -133,7 +133,8 @@ describe("useAddProviderMutation", () => {
       iconColor: "#D4915D",
       createdAt: 123,
     };
-    apiMocks.getAll.mockResolvedValueOnce({
+    // 第一次读：内置官方卡被删掉了；恢复后再读到它
+    apiMocks.getAll.mockResolvedValueOnce({}).mockResolvedValueOnce({
       "claude-desktop-official": seedProvider,
     });
     const { wrapper } = createWrapper();
@@ -159,6 +160,69 @@ describe("useAddProviderMutation", () => {
     expect(apiMocks.getAll).toHaveBeenCalledWith("claude-desktop");
     expect(apiMocks.add).not.toHaveBeenCalled();
     expect(persistedProvider).toEqual(seedProvider);
+  });
+
+  it("adds another Claude Desktop official card when the built-in one exists", async () => {
+    apiMocks.getAll.mockResolvedValueOnce({
+      "claude-desktop-official": {
+        id: "claude-desktop-official",
+        name: "Claude Desktop Official",
+        settingsConfig: { env: {} },
+        category: "official",
+      },
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => useAddProviderMutation("claude-desktop"),
+      { wrapper },
+    );
+
+    const added = await act(async () =>
+      result.current.mutateAsync({
+        name: "Claude Desktop Official",
+        settingsConfig: { env: {} },
+        category: "official",
+        ensureClaudeDesktopOfficialSeed: true,
+      }),
+    );
+
+    expect(apiMocks.ensureClaudeDesktopOfficialProvider).not.toHaveBeenCalled();
+    expect(apiMocks.add).toHaveBeenCalledTimes(1);
+    expect(added.id).toBe("generated-uuid");
+  });
+
+  it("keeps the Desktop account binding when adding a bound official card", async () => {
+    apiMocks.getAll.mockResolvedValueOnce({});
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => useAddProviderMutation("claude-desktop"),
+      { wrapper },
+    );
+    const meta = {
+      authBinding: {
+        source: "managed_account" as const,
+        authProvider: "claude_desktop",
+        accountId: "acct-uuid",
+      },
+    };
+
+    await act(async () =>
+      result.current.mutateAsync({
+        name: "Work",
+        settingsConfig: { env: {} },
+        category: "official",
+        meta,
+        ensureClaudeDesktopOfficialSeed: true,
+      }),
+    );
+
+    expect(apiMocks.ensureClaudeDesktopOfficialProvider).not.toHaveBeenCalled();
+    expect(apiMocks.add).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "generated-uuid", meta }),
+      "claude-desktop",
+      undefined,
+      undefined,
+    );
   });
 
   it("adds a managed Codex account as a separate official card", async () => {

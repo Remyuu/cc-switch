@@ -45,13 +45,19 @@ export const useAddProviderMutation = (appId: AppId) => {
       } = providerInput;
 
       if (appId === "claude-desktop" && ensureClaudeDesktopOfficialSeed) {
-        await providersApi.ensureClaudeDesktopOfficialProvider();
-        const providers = await providersApi.getAll(appId);
-        const officialProvider = providers["claude-desktop-official"];
-        if (!officialProvider) {
-          throw new Error("Claude Desktop official provider was not created");
+        // 内置官方卡被删掉了、又没选账号：把它恢复回来。内置卡还在、或这张要绑 Desktop 账号时，
+        // 和 Claude Code 一样另建一张官方卡（每张可以绑一个账号，启用哪张就切到哪个号）
+        const existing = await providersApi.getAll(appId);
+        const bound = Boolean(rest.meta?.authBinding?.accountId);
+        if (!existing["claude-desktop-official"] && !bound) {
+          await providersApi.ensureClaudeDesktopOfficialProvider();
+          const providers = await providersApi.getAll(appId);
+          const officialProvider = providers["claude-desktop-official"];
+          if (!officialProvider) {
+            throw new Error("Claude Desktop official provider was not created");
+          }
+          return officialProvider;
         }
-        return officialProvider;
       }
 
       if (appId === "grokbuild" && ensureGrokBuildOfficialSeed) {
