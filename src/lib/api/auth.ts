@@ -100,14 +100,6 @@ export async function authCancelLogin(
   });
 }
 
-export async function authListAccounts(
-  authProvider: ManagedAuthProvider,
-): Promise<ManagedAuthAccount[]> {
-  return invoke<ManagedAuthAccount[]>("auth_list_accounts", {
-    authProvider,
-  });
-}
-
 export async function authGetStatus(
   authProvider: ManagedAuthProvider,
 ): Promise<ManagedAuthStatus> {
@@ -281,22 +273,3 @@ export interface ClaudeLoginSwitchStatus {
 export async function getClaudeLoginSwitch(): Promise<ClaudeLoginSwitchStatus> {
   return invoke<ClaudeLoginSwitchStatus>("get_claude_login_switch");
 }
-
-export const authApi = {
-  authStartLogin,
-  authPollForAccount,
-  authCancelLogin,
-  authListAccounts,
-  authGetStatus,
-  authRemoveAccount,
-  authSetDefaultAccount,
-  authLogout,
-  agyAccountIsRunning,
-  workbuddyAccountLiveState,
-  workbuddyAccountImportCurrent,
-  workbuddyAccountPrepareNewLogin,
-  workbuddyAccountOpenApp,
-  workbuddyAccountQuota,
-  claudeAccountSubmitPaste,
-  getClaudeLoginSwitch,
-};

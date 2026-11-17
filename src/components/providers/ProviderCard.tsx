@@ -326,8 +326,7 @@ export function ProviderCard({
       Boolean(claudeBoundAccountId) ||
       Boolean(claudeDesktopBoundAccountId));
   const supportsOfficialSubscription =
-    isOfficial &&
-    ["claude", "codex", "gemini", "grokbuild", "agy"].includes(appId);
+    isOfficial && appHas(appId, "officialSubscription");
   const isOfficialSubscriptionUsage =
     provider.meta?.usage_script?.templateType ===
     TEMPLATE_TYPES.OFFICIAL_SUBSCRIPTION;
